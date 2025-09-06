@@ -1,0 +1,29 @@
+name: nginx-lint
+on: [pull_request, push]
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nginx
+        run: sudo apt-get update && sudo apt-get install -y nginx-core
+      - name: Assemble test tree
+        run: |
+          sudo rm -rf /etc/nginx/*
+          sudo mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/snippets
+          sudo cp -a nginx/sites-available/* /etc/nginx/sites-available/ || true
+          for f in /etc/nginx/sites-available/*.conf; do sudo ln -s "$f" "/etc/nginx/sites-enabled/$(basename "$f")"; done
+          sudo cp -a nginx/snippets/* /etc/nginx/snippets/ || true
+          cat > /etc/nginx/nginx.conf <<'CONF'
+          worker_processes 1;
+          events { worker_connections 1024; }
+          http {
+            include /etc/nginx/sites-enabled/*.conf;
+            # no conf.d include by policy
+          }
+          CONF
+      - name: Policy checks (no triad, no conf.d)
+        run: |
+          ! nginx -T 2>&1 | grep -iE 'triad|conf\.d/' || (echo "Forbidden include detected" && exit 1)
+      - name: Syntax check
+        run: sudo nginx -t
